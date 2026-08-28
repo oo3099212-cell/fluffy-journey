@@ -1,0 +1,70 @@
+name: Crear APK Cinnamoroll
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Buscar y extraer ZIP
+        run: |
+          ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
+          echo "Usando: $ZIP_FILE"
+          mkdir app
+          unzip -o "$ZIP_FILE" -d app
+
+      - name: Instalar Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Instalar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Preparar Android
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar Android SDK
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;35.0.0"
+
+      - name: Instalar dependencias
+        working-directory: app
+        run: npm install --no-audit --no-fund
+
+      - name: Crear proyecto Android
+        working-directory: app
+        run: npx cap add android
+
+      - name: Copiar juego
+        working-directory: app
+        run: npx cap sync android
+
+      - name: Compilar APK
+        working-directory: app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Preparar APK
+        run: |
+          mkdir apk
+          cp app/android/app/build/outputs/apk/debug/app-debug.apk apk/Cinnamoroll-Sky-Adventure-V5.1.apk
+
+      - name: Subir APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Cinnamoroll-Sky-Adventure-APK
+          path: apk/Cinnamoroll-Sky-Adventure-V5.1.apk
