@@ -9,36 +9,62 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Descargar repositorio
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Buscar y extraer ZIP
+        shell: bash
         run: |
           ZIP_FILE=$(find . -maxdepth 1 -name "*.zip" | head -n 1)
-          echo "Usando: $ZIP_FILE"
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No encontré ningún ZIP en la raíz del repositorio."
+            exit 1
+          fi
+          echo "Usando ZIP: $ZIP_FILE"
+          rm -rf app
           mkdir app
           unzip -o "$ZIP_FILE" -d app
+          echo "Contenido extraído:"
+          find app -maxdepth 2 -type f | sort | head -80
 
-      - name: Instalar Node 22
-        uses: actions/setup-node@v4
+      - name: Configurar Node.js 22
+        uses: actions/setup-node@v6
         with:
           node-version: "22"
+          package-manager-cache: false
 
-      - name: Instalar Java 17
-        uses: actions/setup-java@v4
+      - name: Configurar Java 21
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: "21"
 
-      - name: Preparar Android
+      - name: Configurar Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Instalar Android SDK
+      - name: Instalar Android API 36
+        shell: bash
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager "platform-tools" "platforms;android-36" "build-tools;35.0.0"
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Verificar proyecto
+        shell: bash
+        run: |
+          if [ ! -f app/package.json ]; then
+            echo "ERROR: No existe app/package.json"
+            echo "Contenido de app:"
+            find app -maxdepth 3 -type f | sort | head -100
+            exit 1
+          fi
+          if [ ! -f app/www/index.html ]; then
+            echo "ERROR: No existe app/www/index.html"
+            exit 1
+          fi
+          echo "Proyecto correcto."
 
       - name: Instalar dependencias
         working-directory: app
@@ -46,25 +72,40 @@ jobs:
 
       - name: Crear proyecto Android
         working-directory: app
-        run: npx cap add android
+        run: |
+          rm -rf android
+          npx cap add android
 
-      - name: Copiar juego
+      - name: Sincronizar juego
         working-directory: app
         run: npx cap sync android
+
+      - name: Mostrar versiones
+        working-directory: app
+        run: |
+          node --version
+          npm --version
+          java -version
+          npx cap --version
 
       - name: Compilar APK
         working-directory: app/android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Preparar APK
+        shell: bash
         run: |
-          mkdir apk
-          cp app/android/app/build/outputs/apk/debug/app-debug.apk apk/Cinnamoroll-Sky-Adventure-V5.1.apk
+          mkdir -p apk
+          cp app/android/app/build/outputs/apk/debug/app-debug.apk \
+             apk/Cinnamoroll-Sky-Adventure-V5.1.apk
+          ls -lh apk/
 
       - name: Subir APK
         uses: actions/upload-artifact@v4
         with:
           name: Cinnamoroll-Sky-Adventure-APK
           path: apk/Cinnamoroll-Sky-Adventure-V5.1.apk
+          if-no-files-found: error
+          retention-days: 30
